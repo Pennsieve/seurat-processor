@@ -1,6 +1,6 @@
 .PHONY: help test run
 
-SERVICE_NAME  ?= "test-noop-processor"
+SERVICE_NAME  ?= "seurat-processor"
 
 .DEFAULT: help
 

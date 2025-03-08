@@ -6,5 +6,5 @@ services:
     env_file:
       - dev.env
     volumes:
-      - ./data/input:/data/input:ro
+      - ./data/input:/data/input
       - ./data/output:/data/output
