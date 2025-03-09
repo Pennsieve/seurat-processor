@@ -2,12 +2,14 @@ library(nanoparquet)
 library(jsonlite)
 library(SeuratObject)
 
-data <- readRDS("/data/input/TG_neurons_release.Rds")
+data <- readRDS("/data/input/DRG_nonneurons_release.rds")
 
 variables = c()
 for (r in names(data@reductions)) {
-  dimNames <- names(data@reductions[[r]])
-  variables <- c(variables, dimNames)
+  if (r == 'umap' || r == 'tsne') {
+    dimNames <- names(data@reductions[[r]])
+    variables <- c(variables, dimNames)
+  }
 }
 variables <- c(variables, names(data@meta.data))
 
@@ -20,5 +22,5 @@ for (n in names(data@meta.data)) {
   metadata <- c(metadata, setNames(c(toJSON(unique(result[[n]]))), c(n) ))
 }
 
-write_parquet(result, "/data/output/TG_neurons_release.parquet",
+write_parquet(result, "/data/output/DRG_nonneurons_release.parquet",
  meta=metadata, compression= "snappy")
