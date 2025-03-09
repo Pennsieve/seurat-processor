@@ -2,7 +2,11 @@ library(nanoparquet)
 library(jsonlite)
 library(SeuratObject)
 
-data <- readRDS("/data/input/DRG_nonneurons_release.rds")
+inputFolder = Sys.getenv('INPUT_DIR', "/data/input")
+print(inputFolder)
+inputFile = list.files(path = inputFolder)
+print(inputFile)
+data <- readRDS(file.path(inputFolder,inputFile[1]))
 
 variables = c()
 for (r in names(data@reductions)) {
@@ -22,5 +26,7 @@ for (n in names(data@meta.data)) {
   metadata <- c(metadata, setNames(c(toJSON(unique(result[[n]]))), c(n) ))
 }
 
-write_parquet(result, "/data/output/DRG_nonneurons_release.parquet",
+outputFolder = Sys.getenv('OUTPUT_DIR',"/data/output")
+
+write_parquet(result, file.path(outputFolder, "results.parquet"),
  meta=metadata, compression= "snappy")
