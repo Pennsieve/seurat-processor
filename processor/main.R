@@ -1,6 +1,7 @@
 library(nanoparquet)
 library(jsonlite)
 library(SeuratObject)
+library(yaml)
 
 inputFolder = Sys.getenv('INPUT_DIR', "/data/input")
 print(inputFolder)
@@ -28,5 +29,10 @@ for (n in names(data@meta.data)) {
 
 outputFolder = Sys.getenv('OUTPUT_DIR',"/data/output")
 
+# Viewer Config File
+viewerInfo <- list(name = "parquet-umap-viewer", options = list())
+write_yaml(viewerInfo, file.path(outputFolder, "viewer_config.yml"), fileEncoding = "UTF-8")
+
+# Write Parquet File
 write_parquet(result, file.path(outputFolder, "results.parquet"),
  meta=metadata, compression= "snappy")

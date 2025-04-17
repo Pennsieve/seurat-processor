@@ -1,7 +1,8 @@
 pkgs <- c(
   'nanoparquet',
   'SeuratObject',
-  'jsonlite'
+  'jsonlite',
+  'yaml'
 )
 
 install.packages(pkgs)

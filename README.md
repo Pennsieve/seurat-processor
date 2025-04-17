@@ -17,6 +17,7 @@ downstream analysis without needing to download the original Seurat file.
 
 ### Output
 1. A single Parquet file with the reductions and metadata 
+2. A YAML file which provides information about the viewer that is associated with the generated viewer assets
 
 ## Notes
 - Depending on the size of the .Rds file, the container might require significant memory as R only provides a way to load the entire Rds dataset in memory.
