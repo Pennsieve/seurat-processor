@@ -7,8 +7,7 @@ load_config <- function() {
     input_dir      = Sys.getenv("INPUT_DIR", "/data/input"),
     output_dir     = Sys.getenv("OUTPUT_DIR", "/data/output"),
     output_mode    = tolower(Sys.getenv("OUTPUT_MODE", "expanded")),
-    top_genes_count = as.integer(Sys.getenv("TOP_GENES_COUNT", "500")),
-    chunk_size     = as.integer(Sys.getenv("CHUNK_SIZE", "100")),
+    chunk_size     = as.integer(Sys.getenv("CHUNK_SIZE", "500")),
     environment    = Sys.getenv("ENVIRONMENT", "local")
   )
 
@@ -26,7 +25,6 @@ print_config <- function(config) {
   log_info("  INPUT_DIR:       ", config$input_dir)
   log_info("  OUTPUT_DIR:      ", config$output_dir)
   log_info("  OUTPUT_MODE:     ", config$output_mode)
-  log_info("  TOP_GENES_COUNT: ", config$top_genes_count)
   log_info("  CHUNK_SIZE:      ", config$chunk_size)
   log_info("  ENVIRONMENT:     ", config$environment)
 }

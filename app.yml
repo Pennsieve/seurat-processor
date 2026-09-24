@@ -17,11 +17,7 @@ parameters:
     type: string
     description: Output mode - "expanded" for multi-file parquet (PrecisionDashWidgets) or "consolidated" for single results.parquet (legacy)
     default: expanded
-  - name: TOP_GENES_COUNT
-    type: number
-    description: Number of top-expressed genes to write as individual parquet files for fast loading
-    default: 500
   - name: CHUNK_SIZE
     type: number
-    description: Number of genes per chunk file for remaining (non-top) genes
-    default: 100
+    description: Number of genes per chunk file
+    default: 500

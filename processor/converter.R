@@ -212,8 +212,7 @@ write_cells <- function(seurat_obj, config) {
 #'   - genes.parquet (gene_name, gene_id)
 #'   - gene_stats.parquet (gene_name, mean_expr, total_expr, pct_cells, n_cells_expressing)
 #'   - gene_locations.parquet (gene_name, location, is_precomputed)
-#'   - genes/<name>.parquet for top N genes (cell_id, expression)
-#'   - chunks/chunk_NNNNN.parquet for remaining genes (cell_id, expression, gene_id)
+#'   - chunks/chunk_NNNNN.parquet for all genes (cell_id, expression, gene_id)
 #'
 #' Returns gene_info list for manifest.
 write_gene_expression <- function(seurat_obj, config) {
@@ -243,23 +242,8 @@ write_gene_expression <- function(seurat_obj, config) {
   write_parquet_safe(gene_stats, file.path(config$output_dir, "gene_stats.parquet"))
   clean_memory("gene stats")
 
-  # --- Rank genes by mean expression for top N selection ---
-  gene_order <- order(gene_stats$mean_expr, decreasing = TRUE)
-  top_n <- min(config$top_genes_count, n_genes)
-  top_gene_indices <- gene_order[1:top_n]
-  if (top_n < n_genes) {
-    remaining_gene_indices <- gene_order[(top_n + 1):n_genes]
-  } else {
-    remaining_gene_indices <- integer(0)
-  }
-
-  log_info("Top ", top_n, " genes as individual files, ",
-           length(remaining_gene_indices), " genes in chunks of ", config$chunk_size)
-
-  # --- Create output directories ---
-  genes_dir <- file.path(config$output_dir, "genes")
+  # --- Create output directory ---
   chunks_dir <- file.path(config$output_dir, "chunks")
-  dir.create(genes_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(chunks_dir, recursive = TRUE, showWarnings = FALSE)
 
   # --- gene_locations tracking ---
@@ -270,107 +254,63 @@ write_gene_expression <- function(seurat_obj, config) {
     stringsAsFactors = FALSE
   )
 
-  # --- Write top N individual gene files ---
-  log_info("Writing top ", top_n, " individual gene files...")
-  for (i in seq_len(top_n)) {
-    gene_idx <- top_gene_indices[i]
-    gene_name <- gene_names[gene_idx]
-
-    # Extract sparse column
-    expr_col <- expr_matrix[gene_idx, ]
-    expressing <- which(expr_col != 0)
-
-    if (length(expressing) > 0) {
-      gene_df <- data.frame(
-        cell_id = cell_ids[expressing],
-        expression = as.numeric(expr_col[expressing]),
-        stringsAsFactors = FALSE
-      )
-    } else {
-      gene_df <- data.frame(
-        cell_id = character(0),
-        expression = numeric(0),
-        stringsAsFactors = FALSE
-      )
-    }
-
-    # Sanitize filename
-    safe_name <- gsub("[^a-zA-Z0-9._-]", "_", gene_name)
-    filename <- paste0("genes/", safe_name, ".parquet")
-    write_parquet_safe(gene_df, file.path(config$output_dir, filename))
-
-    gene_locations <- rbind(gene_locations, data.frame(
-      gene_name = gene_name,
-      location = filename,
-      is_precomputed = TRUE,
-      stringsAsFactors = FALSE
-    ))
-
-    if (i %% 100 == 0) {
-      log_info("  Written ", i, "/", top_n, " individual gene files")
-      clean_memory(paste0("gene files batch ", i))
-    }
-  }
-
-  # --- Write chunked gene files for remaining genes ---
+  # --- Write all genes into chunk files ---
+  log_info("Writing ", n_genes, " genes in chunks of ", config$chunk_size, "...")
   chunk_idx <- 0
-  if (length(remaining_gene_indices) > 0) {
-    log_info("Writing chunked gene files...")
 
-    for (start in seq(1, length(remaining_gene_indices), by = config$chunk_size)) {
-      end <- min(start + config$chunk_size - 1, length(remaining_gene_indices))
-      batch_indices <- remaining_gene_indices[start:end]
-      chunk_idx <- chunk_idx + 1
+  for (start in seq(1, n_genes, by = config$chunk_size)) {
+    end <- min(start + config$chunk_size - 1, n_genes)
+    batch_indices <- start:end
+    chunk_idx <- chunk_idx + 1
 
-      chunk_filename <- sprintf("chunks/chunk_%05d.parquet", chunk_idx)
+    chunk_filename <- sprintf("chunks/chunk_%05d.parquet", chunk_idx)
 
-      # Build chunk data
-      chunk_rows <- list()
-      for (gene_idx in batch_indices) {
-        expr_col <- expr_matrix[gene_idx, ]
-        expressing <- which(expr_col != 0)
+    # Build chunk data
+    chunk_rows <- list()
+    for (gene_idx in batch_indices) {
+      expr_col <- expr_matrix[gene_idx, ]
+      expressing <- which(expr_col != 0)
 
-        if (length(expressing) > 0) {
-          chunk_rows[[length(chunk_rows) + 1]] <- data.frame(
-            cell_id = cell_ids[expressing],
-            expression = as.numeric(expr_col[expressing]),
-            gene_id = rep(gene_idx - 1L, length(expressing)),  # 0-indexed
-            stringsAsFactors = FALSE
-          )
-        }
-      }
-
-      if (length(chunk_rows) > 0) {
-        chunk_df <- do.call(rbind, chunk_rows)
-      } else {
-        chunk_df <- data.frame(
-          cell_id = character(0),
-          expression = numeric(0),
-          gene_id = integer(0),
+      if (length(expressing) > 0) {
+        chunk_rows[[length(chunk_rows) + 1]] <- data.frame(
+          cell_id = cell_ids[expressing],
+          expression = as.numeric(expr_col[expressing]),
+          gene_id = rep(gene_idx - 1L, length(expressing)),  # 0-indexed
           stringsAsFactors = FALSE
         )
       }
-
-      write_parquet_safe(chunk_df, file.path(config$output_dir, chunk_filename))
-
-      # Add gene locations for this chunk
-      for (gene_idx in batch_indices) {
-        gene_locations <- rbind(gene_locations, data.frame(
-          gene_name = gene_names[gene_idx],
-          location = chunk_filename,
-          is_precomputed = FALSE,
-          stringsAsFactors = FALSE
-        ))
-      }
-
-      if (chunk_idx %% 50 == 0) {
-        log_info("  Written ", chunk_idx, " chunk files")
-        clean_memory(paste0("chunk batch ", chunk_idx))
-      }
     }
 
-    log_info("Wrote ", chunk_idx, " chunk files total")
+    if (length(chunk_rows) > 0) {
+      chunk_df <- do.call(rbind, chunk_rows)
+    } else {
+      chunk_df <- data.frame(
+        cell_id = character(0),
+        expression = numeric(0),
+        gene_id = integer(0),
+        stringsAsFactors = FALSE
+      )
+    }
+
+    write_parquet_safe(chunk_df, file.path(config$output_dir, chunk_filename))
+
+    # Add gene locations for this chunk
+    for (gene_idx in batch_indices) {
+      gene_locations <- rbind(gene_locations, data.frame(
+        gene_name = gene_names[gene_idx],
+        location = chunk_filename,
+        is_precomputed = FALSE,
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    if (chunk_idx %% 10 == 0) {
+      log_info("  Written ", chunk_idx, " chunk files")
+      clean_memory(paste0("chunk batch ", chunk_idx))
+    }
   }
+
+  log_info("Wrote ", chunk_idx, " chunk files total")
 
   # --- gene_locations.parquet ---
   write_parquet_safe(gene_locations, file.path(config$output_dir, "gene_locations.parquet"))
@@ -381,7 +321,6 @@ write_gene_expression <- function(seurat_obj, config) {
 
   gene_info <- list(
     n_genes = n_genes,
-    n_top_genes = top_n,
     n_chunks = chunk_idx
   )
 

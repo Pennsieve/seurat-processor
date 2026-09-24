@@ -71,9 +71,7 @@ write_manifest <- function(config, embedding_info, gene_info, chromatin_info,
     files = files,
     gene_expression = list(
       n_genes = gene_info$n_genes,
-      n_top_genes = gene_info$n_top_genes,
       n_chunks = gene_info$n_chunks,
-      top_genes_dir = "genes",
       chunks_dir = "chunks"
     ),
     chromatin = list(
