@@ -8,3 +8,5 @@ services:
     volumes:
       - ./data/input:/data/input
       - ./data/output:/data/output
+    mem_limit: 64g
+    memswap_limit: 64g

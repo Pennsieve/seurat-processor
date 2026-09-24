@@ -1,26 +1,43 @@
 FROM rocker/r-ver:4.4.2
 
 WORKDIR /processor
-RUN apt clean && apt-get update
 
+# System dependencies for Seurat, Signac, Arrow, and genomics packages
+RUN apt clean && apt-get update && apt-get install -y \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+    libfontconfig1-dev \
+    libharfbuzz-dev \
+    libfribidi-dev \
+    libfreetype6-dev \
+    libpng-dev \
+    libtiff5-dev \
+    libjpeg-dev \
+    libgeos-dev \
+    libglpk-dev \
+    cmake \
+    pkg-config \
+    zlib1g-dev \
+    liblzma-dev \
+    libbz2-dev \
+    libhdf5-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-
-# R program dependencies
-#RUN apt-get install -y libudunits2-dev && apt-get install -y libgeos-dev && apt-get install -y libproj-dev && apt-get -y install libnlopt-dev && apt-get -y install pkg-config && apt-get -y install gdal-bin && apt-get install -y libgdal-dev
-#RUN apt-get -y install libcurl4-openssl-dev libfontconfig1-dev libxml2-dev libharfbuzz-dev libfribidi-dev libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
-#RUN apt-get -y install glpk-utils libglpk-dev glpk-doc
 RUN R --version
 
-# Install remaining packages from source
+# Install R packages from source
 COPY ./requirements-src.R .
 RUN Rscript requirements-src.R
 
-## Clean up package registry
-#RUN rm -rf /var/lib/apt/lists/*
+# Create data directories
+RUN mkdir -p /data/input /data/output
 
-# Add additional program specific dependencies below
-RUN mkdir -p data
-
+# Copy processor code
 COPY ./processor /processor
 
-ENTRYPOINT [ "Rscript", "main.R" ]
+# Copy and set entrypoint
+COPY ./entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
