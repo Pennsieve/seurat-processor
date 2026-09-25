@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://app.pennsieve.io/static/schemas/app-manifest.v1.json
+schemaVersion: '1.0'
+name: Seurat Processor
+description: Processes Seurat Objects (.rds) and exports UMAP embeddings, metadata, and gene expression data to Parquet files for web visualization.
+applicationType: processor
+categories:
+  - Visualization
+  - Single Cell
+runtime:
+  computeTypes:
+    - standard
+resources:
+  cpu: 4096
+  memory: 65536
+parameters:
+  - name: OUTPUT_MODE
+    type: string
+    description: Output mode - "expanded" for multi-file parquet (PrecisionDashWidgets) or "consolidated" for single results.parquet (legacy)
+    default: expanded
+  - name: CHUNK_SIZE
+    type: number
+    description: Number of genes per chunk file
+    default: 500

@@ -1,6 +1,10 @@
 # ignore local data directory used for running and testing the processor locally
 data
 
+# local dev/test scripts
+inspect_rds.R
+create_test_object.R
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
