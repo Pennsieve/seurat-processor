@@ -1,5 +1,5 @@
 # Use Posit Package Manager for pre-built Linux binaries (no compilation)
-options(repos = c(CRAN = "https://p3m.dev/cran/__linux__/jammy/latest"))
+options(repos = c(CRAN = "https://p3m.dev/cran/__linux__/noble/latest"))
 
 # CRAN packages
 cran_pkgs <- c(
