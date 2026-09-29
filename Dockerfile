@@ -1,6 +1,6 @@
 FROM rocker/r-ver:4.4.2
 
-WORKDIR /processor
+WORKDIR /app
 
 # System dependencies for Seurat, Signac, Arrow, and genomics packages
 RUN apt clean && apt-get update && apt-get install -y \
@@ -26,18 +26,18 @@ RUN apt clean && apt-get update && apt-get install -y \
 
 RUN R --version
 
-# Install R packages from source
-COPY ./requirements-src.R .
-RUN Rscript requirements-src.R
+# Install R packages (copy requirements first for Docker layer caching)
+COPY processor/requirements.R /app/processor/requirements.R
+RUN Rscript /app/processor/requirements.R
+
+# Copy processor code
+COPY processor/ /app/processor/
 
 # Create data directories
 RUN mkdir -p /data/input /data/output
 
-# Copy processor code
-COPY ./processor /processor
-
 # Copy and set entrypoint
-COPY ./entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/app/entrypoint.sh"]
