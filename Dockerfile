@@ -22,6 +22,7 @@ RUN apt clean && apt-get update && apt-get install -y \
     libgdal-dev \
     libproj-dev \
     libsqlite3-dev \
+    libuv1-dev \
     cmake \
     pkg-config \
     zlib1g-dev \
