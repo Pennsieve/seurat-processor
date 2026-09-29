@@ -1,3 +1,6 @@
+# Use Posit Package Manager for pre-built Linux binaries (no compilation)
+options(repos = c(CRAN = "https://p3m.dev/cran/__linux__/jammy/latest"))
+
 # CRAN packages
 cran_pkgs <- c(
   'arrow',        # Fast parquet I/O for expanded mode
@@ -9,14 +12,14 @@ cran_pkgs <- c(
   'Rcpp'          # C++ interface (dependency of many packages)
 )
 
-install.packages(cran_pkgs, repos = "https://cloud.r-project.org")
+install.packages(cran_pkgs)
 
-# Seurat and SeuratObject from CRAN
-install.packages(c('Seurat', 'SeuratObject'), repos = "https://cloud.r-project.org")
+# Seurat and SeuratObject
+install.packages(c('Seurat', 'SeuratObject'))
 
 # Bioconductor packages (for Signac / multiome support)
 if (!requireNamespace("BiocManager", quietly = TRUE))
-  install.packages("BiocManager", repos = "https://cloud.r-project.org")
+  install.packages("BiocManager")
 
 BiocManager::install(c(
   'GenomicRanges',
@@ -30,4 +33,4 @@ BiocManager::install(c(
 ), ask = FALSE, update = FALSE)
 
 # Signac for chromatin assay support
-install.packages('Signac', repos = "https://cloud.r-project.org")
+install.packages('Signac')
