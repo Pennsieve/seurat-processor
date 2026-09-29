@@ -1,3 +1,13 @@
+# Helper: install and verify, stop the build if anything fails
+install_and_check <- function(pkgs, ...) {
+  install.packages(pkgs, ...)
+  for (pkg in pkgs) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      stop(paste0("FATAL: Package '", pkg, "' failed to install"), call. = FALSE)
+    }
+  }
+}
+
 # CRAN packages
 cran_pkgs <- c(
   'arrow',        # Fast parquet I/O for expanded mode
@@ -9,10 +19,10 @@ cran_pkgs <- c(
   'Rcpp'          # C++ interface (dependency of many packages)
 )
 
-install.packages(cran_pkgs, repos = "https://cloud.r-project.org")
+install_and_check(cran_pkgs, repos = "https://cloud.r-project.org")
 
 # Seurat and SeuratObject from CRAN
-install.packages(c('Seurat', 'SeuratObject'), repos = "https://cloud.r-project.org")
+install_and_check(c('SeuratObject', 'Seurat'), repos = "https://cloud.r-project.org")
 
 # Bioconductor packages (for Signac / multiome support)
 if (!requireNamespace("BiocManager", quietly = TRUE))
@@ -29,5 +39,14 @@ BiocManager::install(c(
   'biovizBase'
 ), ask = FALSE, update = FALSE)
 
+for (pkg in c('GenomicRanges', 'GenomeInfoDb', 'IRanges', 'Rsamtools',
+              'Biostrings', 'BSgenome', 'EnsDb.Hsapiens.v86', 'biovizBase')) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    stop(paste0("FATAL: Bioconductor package '", pkg, "' failed to install"), call. = FALSE)
+  }
+}
+
 # Signac for chromatin assay support
-install.packages('Signac', repos = "https://cloud.r-project.org")
+install_and_check('Signac', repos = "https://cloud.r-project.org")
+
+message("All packages installed successfully")
