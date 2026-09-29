@@ -16,6 +16,12 @@ RUN apt clean && apt-get update && apt-get install -y \
     libjpeg-dev \
     libgeos-dev \
     libglpk-dev \
+    libgsl-dev \
+    libfftw3-dev \
+    libudunits2-dev \
+    libgdal-dev \
+    libproj-dev \
+    libsqlite3-dev \
     cmake \
     pkg-config \
     zlib1g-dev \
