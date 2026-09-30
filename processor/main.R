@@ -24,9 +24,10 @@ source(file.path(script_dir, "manifest.R"))
 # Libraries
 library(SeuratObject)
 library(Seurat)
+library(Signac)
 
 # DEBUG: verify packages load then exit before processing
-message("[DEBUG] All libraries loaded successfully. Exiting before processing.")
+message("[DEBUG] All libraries loaded successfully (including Signac). Exiting before processing.")
 quit(status = 0)
 
 # --- Main --------------------------------------------------------------------
