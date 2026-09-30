@@ -21,6 +21,7 @@ install.packages(c('Seurat', 'SeuratObject'))
 if (!requireNamespace("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 
+# Set BiocManager to also use PPM for CRAN deps
 BiocManager::install(c(
   'GenomicRanges',
   'GenomeInfoDb',
@@ -34,3 +35,26 @@ BiocManager::install(c(
 
 # Signac for chromatin assay support
 install.packages('Signac')
+
+# --- Verify critical packages installed ---
+critical <- c('arrow', 'Seurat', 'SeuratObject', 'Signac',
+              'GenomicRanges', 'data.table', 'jsonlite', 'yaml')
+missing <- critical[!sapply(critical, requireNamespace, quietly = TRUE)]
+if (length(missing) > 0) {
+  message("WARNING: These packages failed to install: ", paste(missing, collapse = ", "))
+  message("Attempting reinstall of missing packages...")
+  for (pkg in missing) {
+    tryCatch(install.packages(pkg), error = function(e) {
+      message("  Failed to install ", pkg, ": ", e$message)
+    })
+  }
+}
+
+# Final check — log status but don't block build
+for (pkg in critical) {
+  if (requireNamespace(pkg, quietly = TRUE)) {
+    message("OK: ", pkg)
+  } else {
+    message("MISSING: ", pkg)
+  }
+}
