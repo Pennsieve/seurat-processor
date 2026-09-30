@@ -25,6 +25,10 @@ source(file.path(script_dir, "manifest.R"))
 library(SeuratObject)
 library(Seurat)
 
+# DEBUG: verify packages load then exit before processing
+message("[DEBUG] All libraries loaded successfully. Exiting before processing.")
+quit(status = 0)
+
 # --- Main --------------------------------------------------------------------
 
 main <- function() {
