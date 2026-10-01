@@ -10,15 +10,13 @@ install.packages(c(
 # BiocManager (from PPM)
 install.packages("BiocManager", repos = ppm)
 
-# Bioconductor packages — let BiocManager use its OWN repos (not PPM)
-# PPM doesn't mirror Bioconductor, so we must not override repos here
+# Install ALL Bioconductor + Signac through BiocManager
+# BiocManager resolves both Bioconductor and CRAN deps together
 BiocManager::install(c(
   'GenomicRanges', 'GenomeInfoDb', 'IRanges', 'Rsamtools',
-  'Biostrings', 'BSgenome', 'EnsDb.Hsapiens.v86', 'biovizBase'
+  'Biostrings', 'BSgenome', 'EnsDb.Hsapiens.v86', 'biovizBase',
+  'Signac'
 ), ask = FALSE, update = FALSE)
-
-# Signac — depends on Bioconductor pkgs above
-install.packages('Signac', repos = ppm)
 
 # --- Verify ---
 critical <- c('arrow', 'Seurat', 'SeuratObject', 'Signac',
