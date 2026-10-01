@@ -246,16 +246,13 @@ write_gene_expression <- function(seurat_obj, config) {
   chunks_dir <- file.path(config$output_dir, "chunks")
   dir.create(chunks_dir, recursive = TRUE, showWarnings = FALSE)
 
-  # --- gene_locations tracking ---
-  gene_locations <- data.frame(
-    gene_name = character(0),
-    location = character(0),
-    is_precomputed = logical(0),
-    stringsAsFactors = FALSE
-  )
+  # --- Pre-allocate gene_locations ---
+  n_chunks <- ceiling(n_genes / config$chunk_size)
+  gene_loc_names <- character(n_genes)
+  gene_loc_files <- character(n_genes)
 
   # --- Write all genes into chunk files ---
-  log_info("Writing ", n_genes, " genes in chunks of ", config$chunk_size, "...")
+  log_info("Writing ", n_genes, " genes in ", n_chunks, " chunks of ", config$chunk_size, "...")
   chunk_idx <- 0
 
   for (start in seq(1, n_genes, by = config$chunk_size)) {
@@ -265,24 +262,26 @@ write_gene_expression <- function(seurat_obj, config) {
 
     chunk_filename <- sprintf("chunks/chunk_%05d.parquet", chunk_idx)
 
-    # Build chunk data
-    chunk_rows <- list()
+    # Build chunk data using data.table for speed
+    chunk_rows <- vector("list", length(batch_indices))
+    ri <- 0L
     for (gene_idx in batch_indices) {
       expr_col <- expr_matrix[gene_idx, ]
       expressing <- which(expr_col != 0)
 
       if (length(expressing) > 0) {
-        chunk_rows[[length(chunk_rows) + 1]] <- data.frame(
+        ri <- ri + 1L
+        chunk_rows[[ri]] <- data.frame(
           cell_id = cell_ids[expressing],
           expression = as.numeric(expr_col[expressing]),
-          gene_id = rep(gene_idx - 1L, length(expressing)),  # 0-indexed
+          gene_id = rep(gene_idx - 1L, length(expressing)),
           stringsAsFactors = FALSE
         )
       }
     }
 
-    if (length(chunk_rows) > 0) {
-      chunk_df <- do.call(rbind, chunk_rows)
+    if (ri > 0) {
+      chunk_df <- do.call(rbind, chunk_rows[1:ri])
     } else {
       chunk_df <- data.frame(
         cell_id = character(0),
@@ -293,19 +292,14 @@ write_gene_expression <- function(seurat_obj, config) {
     }
 
     write_parquet_safe(chunk_df, file.path(config$output_dir, chunk_filename))
+    rm(chunk_df, chunk_rows)
 
-    # Add gene locations for this chunk
-    for (gene_idx in batch_indices) {
-      gene_locations <- rbind(gene_locations, data.frame(
-        gene_name = gene_names[gene_idx],
-        location = chunk_filename,
-        is_precomputed = FALSE,
-        stringsAsFactors = FALSE
-      ))
-    }
+    # Record gene locations (pre-allocated vectors, no rbind)
+    gene_loc_names[batch_indices] <- gene_names[batch_indices]
+    gene_loc_files[batch_indices] <- chunk_filename
 
     if (chunk_idx %% 10 == 0) {
-      log_info("  Written ", chunk_idx, " chunk files")
+      log_info("  Written ", chunk_idx, " / ", n_chunks, " chunks")
       clean_memory(paste0("chunk batch ", chunk_idx))
     }
   }
@@ -313,6 +307,12 @@ write_gene_expression <- function(seurat_obj, config) {
   log_info("Wrote ", chunk_idx, " chunk files total")
 
   # --- gene_locations.parquet ---
+  gene_locations <- data.frame(
+    gene_name = gene_loc_names,
+    location = gene_loc_files,
+    is_precomputed = rep(FALSE, n_genes),
+    stringsAsFactors = FALSE
+  )
   write_parquet_safe(gene_locations, file.path(config$output_dir, "gene_locations.parquet"))
 
   # Explicitly free the expression matrix
@@ -329,17 +329,20 @@ write_gene_expression <- function(seurat_obj, config) {
 
 #' Compute per-gene statistics from sparse expression matrix
 compute_gene_stats <- function(expr_matrix, gene_names, n_cells) {
-  # Use Matrix sparse operations for efficiency
-  # Row sums = total expression per gene
+  # Row sums = total expression per gene (efficient on sparse matrix)
   total_expr <- Matrix::rowSums(expr_matrix)
 
-  # Number of cells expressing each gene (non-zero entries per row)
-  n_expressing <- Matrix::rowSums(expr_matrix != 0)
+  # Count non-zero entries per row directly from sparse structure
+  # Avoids creating a temporary copy with expr_matrix != 0
+  if (inherits(expr_matrix, "dgCMatrix")) {
+    # dgCMatrix: column-oriented, use row indices to count per-row non-zeros
+    n_expressing <- tabulate(expr_matrix@i + 1L, nbins = nrow(expr_matrix))
+  } else {
+    # Fallback for other sparse formats
+    n_expressing <- Matrix::rowSums(expr_matrix != 0)
+  }
 
-  # Mean expression = total / n_cells
   mean_expr <- total_expr / n_cells
-
-  # Percent cells expressing
   pct_cells <- (n_expressing / n_cells) * 100
 
   data.frame(
