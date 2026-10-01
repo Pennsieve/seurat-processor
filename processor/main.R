@@ -80,6 +80,21 @@ main <- function() {
   log_info("Metadata columns: ", paste(names(seurat_obj@meta.data), collapse = ", "))
   clean_memory("RDS load")
 
+  # Drop unused assays to free memory — keep RNA, chromatin assay, and chromvar
+  # See README for details on which assays are retained and why
+  keep_assays <- c("RNA", "chromvar")
+  chromatin_name <- get_chromatin_assay_name(seurat_obj)
+  if (!is.null(chromatin_name)) keep_assays <- c(keep_assays, chromatin_name)
+  keep_assays <- intersect(keep_assays, names(seurat_obj@assays))  # only keep what exists
+  drop_assays <- setdiff(names(seurat_obj@assays), keep_assays)
+  if (length(drop_assays) > 0) {
+    log_info("Dropping unused assays to free memory: ", paste(drop_assays, collapse = ", "))
+    for (a in drop_assays) {
+      seurat_obj[[a]] <- NULL
+    }
+    clean_memory("drop unused assays")
+  }
+
   # Dispatch based on output mode
   if (config$output_mode == "consolidated") {
     run_legacy(seurat_obj, config)
@@ -114,11 +129,16 @@ run_expanded <- function(seurat_obj, config) {
   t1 <- timer_start()
   embedding_info <- write_embeddings(seurat_obj, config, is_multiome)
   timer_log(t1, "Phase 1 (Embeddings)")
-  clean_memory("embeddings")
+  # Drop reductions to free memory — no longer needed
+  for (r in names(seurat_obj@reductions)) {
+    seurat_obj@reductions[[r]] <- NULL
+  }
+  clean_memory("embeddings + drop reductions")
 
   # Phase 2: Cell metadata
   log_info("--- Phase 2: Cell metadata ---")
   t2 <- timer_start()
+  n_cells <- ncol(seurat_obj)  # save before we start stripping
   cell_type_col <- write_cells(seurat_obj, config)
   timer_log(t2, "Phase 2 (Cell metadata)")
   clean_memory("cells")
@@ -134,7 +154,11 @@ run_expanded <- function(seurat_obj, config) {
     stop(e)
   })
   timer_log(t3, "Phase 3 (Gene expression)")
-  clean_memory("gene expression")
+  # Drop RNA assay to free memory before chromatin phase
+  if ("RNA" %in% names(seurat_obj@assays)) {
+    seurat_obj[["RNA"]] <- NULL
+  }
+  clean_memory("gene expression + drop RNA")
 
   # Phase 4: Chromatin (multiome only)
   chromatin_info <- list()
@@ -151,7 +175,7 @@ run_expanded <- function(seurat_obj, config) {
   # Phase 5: Manifest + viewer config
   log_info("--- Phase 5: Manifest ---")
   write_manifest(config, embedding_info, gene_info, chromatin_info,
-                 is_multiome, cell_type_col, ncol(seurat_obj))
+                 is_multiome, cell_type_col, n_cells)
 
   # Viewer config
   viewerInfo <- list(name = "parquet-umap-viewer", options = list())
