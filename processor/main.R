@@ -154,9 +154,26 @@ run_expanded <- function(seurat_obj, config) {
     stop(e)
   })
   timer_log(t3, "Phase 3 (Gene expression)")
+
+  # Phase 3b: Peak-gene links — correlates RNA with ATAC, so it runs while
+  # both assays are still loaded (before RNA is dropped below)
+  has_linked_peaks <- FALSE
+  if (is_multiome && !is.null(chromatin_assay)) {
+    log_info("--- Phase 3b: Peak-gene links ---")
+    t3b <- timer_start()
+    has_linked_peaks <- write_linked_peaks(seurat_obj, config, chromatin_assay)
+    timer_log(t3b, "Phase 3b (Peak-gene links)")
+    clean_memory("peak-gene links")
+  }
+
   # Drop RNA assay to free memory before chromatin phase
   if ("RNA" %in% names(seurat_obj@assays)) {
-    seurat_obj[["RNA"]] <- NULL
+    # Seurat refuses to delete the default assay
+    if (DefaultAssay(seurat_obj) == "RNA") {
+      other <- setdiff(names(seurat_obj@assays), "RNA")
+      if (length(other) > 0) DefaultAssay(seurat_obj) <- other[1]
+    }
+    if (DefaultAssay(seurat_obj) != "RNA") seurat_obj[["RNA"]] <- NULL
   }
   clean_memory("gene expression + drop RNA")
 
@@ -165,7 +182,8 @@ run_expanded <- function(seurat_obj, config) {
   if (is_multiome && !is.null(chromatin_assay)) {
     log_info("--- Phase 4: Chromatin ---")
     t4 <- timer_start()
-    chromatin_info <- write_chromatin_data(seurat_obj, config, chromatin_assay)
+    chromatin_info <- write_chromatin_data(seurat_obj, config, chromatin_assay,
+                                           has_linked_peaks)
     timer_log(t4, "Phase 4 (Chromatin)")
     clean_memory("chromatin")
   } else {

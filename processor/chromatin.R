@@ -7,12 +7,15 @@
 
 #' Write chromatin-related parquet files for multiome data
 #'
+#' Peak-gene links are written earlier (write_linked_peaks, before the RNA assay
+#' is dropped); pass whether that succeeded as `has_linked_peaks`.
 #' Returns a list of chromatin info for the manifest.
-write_chromatin_data <- function(seurat_obj, config, chromatin_assay) {
+write_chromatin_data <- function(seurat_obj, config, chromatin_assay,
+                                 has_linked_peaks = FALSE) {
   chromatin_info <- list(
     has_tracks = FALSE,
     has_gene_coords = FALSE,
-    has_linked_peaks = FALSE
+    has_linked_peaks = isTRUE(has_linked_peaks)
   )
 
   # Try to load Signac
@@ -45,16 +48,6 @@ write_chromatin_data <- function(seurat_obj, config, chromatin_assay) {
     log_warn("Failed to write gene coordinates: ", e$message)
   })
   clean_memory("gene coords")
-
-  # --- Peak-gene links (only if pre-computed) ---
-  tryCatch({
-    chromatin_info$has_linked_peaks <- write_linked_peaks(
-      seurat_obj, config, chromatin_assay
-    )
-  }, error = function(e) {
-    log_warn("Failed to write linked peaks: ", e$message)
-  })
-  clean_memory("linked peaks")
 
   return(chromatin_info)
 }
@@ -153,108 +146,61 @@ parse_peak_names <- function(peak_names) {
 }
 
 # =============================================================================
-# GENE COORDINATES
+# GENE ANNOTATIONS
 # =============================================================================
 
-write_gene_coordinates <- function(seurat_obj, config, chromatin_assay) {
-  log_info("Extracting gene coordinates...")
+#' Gene annotations for the chromatin assay, in Signac's format
+#' (one row per exon/cds/utr/gap, with gene_name and type columns).
+#' Falls back to Ensembl v86 (hg38) when the object has none. Cached per run.
+get_gene_annotations <- function(seurat_obj, chromatin_assay) {
+  if (!is.null(.annotation_cache$annotations)) return(.annotation_cache$annotations)
 
-  # Try to get gene annotations from the ChromatinAssay
-  assay_obj <- seurat_obj@assays[[chromatin_assay]]
-
-  annotations <- tryCatch({
-    Signac::Annotation(assay_obj)
-  }, error = function(e) {
-    log_warn("No annotations in ChromatinAssay: ", e$message)
-    NULL
-  })
+  annotations <- tryCatch(
+    Signac::Annotation(seurat_obj[[chromatin_assay]]),
+    error = function(e) NULL
+  )
 
   if (is.null(annotations) || length(annotations) == 0) {
-    # Try EnsDb as fallback
+    log_info("No annotations in ChromatinAssay — using EnsDb.Hsapiens.v86 (hg38)")
     annotations <- tryCatch({
-      library(EnsDb.Hsapiens.v86)
-      genes <- ensembldb::genes(EnsDb.Hsapiens.v86)
-      genes
+      suppressMessages(library(EnsDb.Hsapiens.v86))
+      annot <- suppressWarnings(Signac::GetGRangesFromEnsDb(ensdb = EnsDb.Hsapiens.v86))
+      # Ensembl names chromosomes "1"; peaks use "chr1"
+      GenomeInfoDb::seqlevelsStyle(annot) <- "UCSC"
+      annot
     }, error = function(e) {
       log_warn("Could not load gene annotations: ", e$message)
       NULL
     })
   }
 
+  if (!is.null(annotations) && length(annotations) > 0) {
+    log_info("Gene annotations: ", length(annotations), " ranges, types: ",
+             paste(unique(as.character(annotations$type)), collapse = ", "))
+  }
+  .annotation_cache$annotations <- annotations
+  annotations
+}
+.annotation_cache <- new.env()
+
+# =============================================================================
+# GENE COORDINATES
+# =============================================================================
+
+write_gene_coordinates <- function(seurat_obj, config, chromatin_assay) {
+  log_info("Extracting gene coordinates...")
+
+  annotations <- get_gene_annotations(seurat_obj, chromatin_assay)
   if (is.null(annotations) || length(annotations) == 0) {
     log_warn("No gene annotations available — skipping gene_coordinates.parquet")
     return(FALSE)
   }
 
-  # Filter to gene-level features
-  if ("type" %in% names(GenomicRanges::mcols(annotations))) {
-    gene_annot <- annotations[annotations$type == "gene"]
-  } else {
-    gene_annot <- annotations
-  }
-
-  if (length(gene_annot) == 0) {
-    log_warn("No gene-level annotations found")
+  coords_df <- build_gene_coordinates(annotations)
+  if (is.null(coords_df) || nrow(coords_df) == 0) {
+    log_warn("No gene coordinates could be built from annotations")
     return(FALSE)
   }
-
-  # Extract gene names
-  gene_name_col <- NULL
-  mcol_names <- names(GenomicRanges::mcols(gene_annot))
-  for (col in c("gene_name", "symbol", "SYMBOL", "gene_id")) {
-    if (col %in% mcol_names) { gene_name_col <- col; break }
-  }
-
-  if (is.null(gene_name_col)) {
-    log_warn("No gene name column found in annotations")
-    return(FALSE)
-  }
-
-  # Build gene coordinates dataframe
-  gene_names <- GenomicRanges::mcols(gene_annot)[[gene_name_col]]
-  chroms <- as.character(GenomicRanges::seqnames(gene_annot))
-  starts <- GenomicRanges::start(gene_annot)
-  ends <- GenomicRanges::end(gene_annot)
-  strands <- as.character(GenomicRanges::strand(gene_annot))
-
-  # Try to get exon information
-  exon_starts <- rep("", length(gene_annot))
-  exon_ends <- rep("", length(gene_annot))
-
-  tryCatch({
-    # Get exons grouped by gene
-    if ("type" %in% names(GenomicRanges::mcols(annotations))) {
-      exon_annot <- annotations[annotations$type == "exon"]
-      if (length(exon_annot) > 0 && gene_name_col %in% names(GenomicRanges::mcols(exon_annot))) {
-        exon_by_gene <- split(exon_annot, GenomicRanges::mcols(exon_annot)[[gene_name_col]])
-
-        for (i in seq_along(gene_names)) {
-          gn <- gene_names[i]
-          if (gn %in% names(exon_by_gene)) {
-            exons <- exon_by_gene[[gn]]
-            exon_starts[i] <- paste(GenomicRanges::start(exons), collapse = ",")
-            exon_ends[i] <- paste(GenomicRanges::end(exons), collapse = ",")
-          }
-        }
-      }
-    }
-  }, error = function(e) {
-    log_warn("Could not extract exon info: ", e$message)
-  })
-
-  coords_df <- data.frame(
-    gene_name = gene_names,
-    chrom = chroms,
-    start = starts,
-    end = ends,
-    strand = strands,
-    exon_starts = exon_starts,
-    exon_ends = exon_ends,
-    stringsAsFactors = FALSE
-  )
-
-  # Remove duplicates (keep first occurrence)
-  coords_df <- coords_df[!duplicated(coords_df$gene_name), ]
 
   write_parquet_safe(coords_df, file.path(config$output_dir, "gene_coordinates.parquet"))
   log_info("Wrote gene coordinates for ", nrow(coords_df), " genes")
@@ -262,43 +208,212 @@ write_gene_coordinates <- function(seurat_obj, config, chromatin_assay) {
   return(TRUE)
 }
 
-# =============================================================================
-# PEAK-GENE LINKS (only if pre-computed in Seurat object)
-# =============================================================================
-
-write_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
-  log_info("Checking for pre-computed peak-gene links...")
-
-  assay_obj <- seurat_obj@assays[[chromatin_assay]]
-
-  # Check if links exist in the assay
-  links <- tryCatch({
-    Signac::Links(assay_obj)
-  }, error = function(e) {
-    NULL
-  })
-
-  if (is.null(links) || length(links) == 0) {
-    log_info("No pre-computed peak-gene links found — skipping linked_peaks.parquet")
-    return(FALSE)
+#' One row per gene: span over all its annotation ranges, plus exons merged
+#' across transcripts (comma-separated starts/ends).
+#'
+#' Signac annotations have no "gene" rows — only exon/cds/utr/gap per
+#' transcript — so the gene span is built from those.
+build_gene_coordinates <- function(annotations) {
+  mc <- GenomicRanges::mcols(annotations)
+  name_col <- intersect(c("gene_name", "symbol", "SYMBOL", "gene_id"), names(mc))[1]
+  if (is.na(name_col)) {
+    log_warn("No gene name column found in annotations")
+    return(NULL)
   }
 
-  log_info("Found ", length(links), " pre-computed peak-gene links")
+  dt <- data.table::data.table(
+    gene_name = as.character(mc[[name_col]]),
+    chrom = as.character(GenomicRanges::seqnames(annotations)),
+    start = GenomicRanges::start(annotations),
+    end = GenomicRanges::end(annotations),
+    strand = as.character(GenomicRanges::strand(annotations)),
+    type = if ("type" %in% names(mc)) as.character(mc$type) else NA_character_
+  )
+  dt <- dt[!is.na(gene_name) & gene_name != ""]
 
-  # Extract link data
-  link_df <- data.frame(
-    gene_name = links$gene,
-    peak_chrom = as.character(GenomicRanges::seqnames(links)),
-    peak_start = GenomicRanges::start(links),
-    peak_end = GenomicRanges::end(links),
-    correlation = if ("score" %in% names(GenomicRanges::mcols(links))) links$score else NA_real_,
-    p_value = if ("pvalue" %in% names(GenomicRanges::mcols(links))) links$pvalue else NA_real_,
+  # Keep one chromosome per gene (e.g. PAR genes are annotated on X and Y)
+  first_chrom <- dt[, .(chrom = chrom[1]), by = gene_name]
+  dt <- dt[first_chrom, on = c("gene_name", "chrom")]
+
+  genes <- dt[, .(start = min(start), end = max(end), strand = strand[1]),
+              by = .(gene_name, chrom)]
+
+  # Merge overlapping exons from all transcripts into one gene-level model
+  exons <- dt[type == "exon", .(gene_name, start, end)]
+  if (nrow(exons) > 0) {
+    data.table::setorder(exons, gene_name, start)
+    exons[, block := cumsum(start > data.table::shift(cummax(end), fill = 0L)),
+          by = gene_name]
+    merged <- exons[, .(start = min(start), end = max(end)), by = .(gene_name, block)]
+    exon_strings <- merged[, .(
+      exon_starts = paste(start, collapse = ","),
+      exon_ends = paste(end, collapse = ",")
+    ), by = gene_name]
+    genes <- exon_strings[genes, on = "gene_name"]
+  } else {
+    genes[, `:=`(exon_starts = NA_character_, exon_ends = NA_character_)]
+  }
+  genes[is.na(exon_starts), `:=`(exon_starts = "", exon_ends = "")]
+
+  as.data.frame(genes[, .(gene_name, chrom, start, end, strand, exon_starts, exon_ends)])
+}
+
+# =============================================================================
+# PEAK-GENE LINKS
+# =============================================================================
+
+#' Write linked_peaks.parquet. Uses links already in the object if present,
+#' otherwise computes them with Signac::LinkPeaks (correlating each gene's
+#' expression with accessibility of peaks within 500 kb).
+#'
+#' Needs the RNA assay, so it runs before RNA is dropped. Never fails the run:
+#' any error is logged and the file is skipped.
+write_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
+  tryCatch({
+    links <- Signac::Links(seurat_obj[[chromatin_assay]])
+    if (length(links) > 0) {
+      log_info("Found ", length(links), " pre-computed peak-gene links")
+    } else if (!config$link_peaks) {
+      log_info("No pre-computed peak-gene links and LINK_PEAKS=false — skipping")
+      return(FALSE)
+    } else {
+      links <- compute_linked_peaks(seurat_obj, config, chromatin_assay)
+    }
+
+    if (is.null(links) || length(links) == 0) {
+      log_info("No peak-gene links found — skipping linked_peaks.parquet")
+      return(FALSE)
+    }
+
+    write_parquet_safe(links_to_df(links),
+                       file.path(config$output_dir, "linked_peaks.parquet"))
+    TRUE
+  }, error = function(e) {
+    log_warn("Failed to write peak-gene links: ", e$message)
+    FALSE
+  })
+}
+
+#' Run LinkPeaks in batches of genes, logging progress and stopping when the
+#' time budget runs out (links found so far are kept).
+compute_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
+  annotations <- get_gene_annotations(seurat_obj, chromatin_assay)
+  if (is.null(annotations) || length(annotations) == 0) {
+    log_warn("No gene annotations — cannot compute peak-gene links")
+    return(NULL)
+  }
+  # LinkPeaks reads gene positions from the assay's annotation
+  if (length(Signac::Annotation(seurat_obj[[chromatin_assay]])) == 0) {
+    Signac::Annotation(seurat_obj[[chromatin_assay]]) <- annotations
+  }
+  annotated_genes <- unique(annotations$gene_name)
+
+  seurat_obj <- add_peak_gc_content(seurat_obj, chromatin_assay)
+  if (is.null(seurat_obj)) return(NULL)
+
+  # LinkPeaks checks the expression layer against the default assay
+  DefaultAssay(seurat_obj) <- "RNA"
+
+  # Annotated genes, most widely expressed first, capped at LINK_MAX_GENES
+  expr <- GetAssayData(seurat_obj, assay = "RNA", layer = "data")
+  n_expressing <- tabulate(expr@i + 1L, nbins = nrow(expr))
+  names(n_expressing) <- rownames(expr)
+  rm(expr)
+  candidates <- n_expressing[names(n_expressing) %in% annotated_genes &
+                               n_expressing > 10]
+  genes <- names(sort(candidates, decreasing = TRUE))
+  if (config$link_max_genes > 0) genes <- head(genes, config$link_max_genes)
+  if (length(genes) == 0) {
+    log_warn("No expressed, annotated genes to link")
+    return(NULL)
+  }
+
+  batches <- split(genes, ceiling(seq_along(genes) / config$link_batch_size))
+  log_info("Linking peaks for ", length(genes), " genes in ", length(batches),
+           " batches (time budget ", config$link_max_minutes, " min)")
+
+  started <- proc.time()[["elapsed"]]
+  results <- list()
+  for (b in seq_along(batches)) {
+    elapsed_min <- (proc.time()[["elapsed"]] - started) / 60
+    if (elapsed_min > config$link_max_minutes) {
+      log_warn("Time budget reached after ", b - 1, " / ", length(batches),
+               " batches — keeping links found so far")
+      break
+    }
+
+    linked <- NULL
+    batch_result <- tryCatch({
+      linked <- suppressMessages(Signac::LinkPeaks(
+        object = seurat_obj,
+        peak.assay = chromatin_assay,
+        expression.assay = "RNA",
+        genes.use = batches[[b]],
+        verbose = FALSE
+      ))
+      Signac::Links(linked[[chromatin_assay]])
+    }, error = function(e) {
+      log_warn("LinkPeaks batch ", b, " failed: ", e$message)
+      NULL
+    })
+    rm(linked)
+
+    if (length(batch_result) > 0) results[[length(results) + 1]] <- batch_result
+    log_info("  Linked batch ", b, " / ", length(batches), " — ",
+             length(batch_result), " links, ",
+             round((proc.time()[["elapsed"]] - started) / 60, 1), " min elapsed")
+    clean_memory(paste0("link batch ", b))
+  }
+
+  if (length(results) == 0) return(NULL)
+  do.call(c, unname(results))
+}
+
+#' LinkPeaks compares each peak against background peaks with similar GC
+#' content, which needs the genome sequence. Skips links if unavailable.
+add_peak_gc_content <- function(seurat_obj, chromatin_assay) {
+  meta <- seurat_obj[[chromatin_assay]][[]]
+  if (all(c("GC.percent", "sequence.length") %in% colnames(meta))) {
+    return(seurat_obj)
+  }
+
+  if (!requireNamespace("BSgenome.Hsapiens.UCSC.hg38", quietly = TRUE)) {
+    log_warn("BSgenome.Hsapiens.UCSC.hg38 not installed — cannot compute peak-gene links")
+    return(NULL)
+  }
+
+  log_info("Computing peak GC content (RegionStats, hg38)...")
+  tryCatch(
+    Signac::RegionStats(seurat_obj, assay = chromatin_assay,
+                        genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38),
+    error = function(e) {
+      log_warn("RegionStats failed: ", e$message)
+      NULL
+    }
+  )
+}
+
+#' Flatten Signac links to the linked_peaks.parquet schema.
+#' Signac stores each link as a range from the gene TSS to the peak midpoint;
+#' the peak itself is in the `peak` column ("chr-start-end").
+links_to_df <- function(links) {
+  peaks <- Signac::StringToGRanges(links$peak, sep = c("-", "-"))
+  peak_mid <- GenomicRanges::start(peaks) + GenomicRanges::width(peaks) / 2
+  link_start <- GenomicRanges::start(links)
+  link_end <- GenomicRanges::end(links)
+  tss <- ifelse(abs(link_start - peak_mid) < abs(link_end - peak_mid), link_end, link_start)
+  mc <- GenomicRanges::mcols(links)
+
+  data.frame(
+    gene_name = as.character(links$gene),
+    peak_chrom = as.character(GenomicRanges::seqnames(peaks)),
+    peak_start = GenomicRanges::start(peaks),
+    peak_end = GenomicRanges::end(peaks),
+    correlation = if ("score" %in% names(mc)) as.numeric(mc$score) else NA_real_,
+    zscore = if ("zscore" %in% names(mc)) as.numeric(mc$zscore) else NA_real_,
+    p_value = if ("pvalue" %in% names(mc)) as.numeric(mc$pvalue) else NA_real_,
     link_type = "peak_gene",
-    distance_to_tss = NA_integer_,
+    distance_to_tss = as.integer(round(peak_mid - tss)),
     stringsAsFactors = FALSE
   )
-
-  write_parquet_safe(link_df, file.path(config$output_dir, "linked_peaks.parquet"))
-
-  return(TRUE)
 }

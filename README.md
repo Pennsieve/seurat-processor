@@ -20,8 +20,8 @@ Produces multiple Parquet files optimized for lazy-loading in the browser:
 | `gene_locations.parquet` | Maps each gene to its chunk file |
 | `chunks/chunk_NNNNN.parquet` | Gene expression data grouped by chunk |
 | `chromatin_tracks.parquet` | Pseudobulk chromatin signal per cell type (multiome only) |
-| `gene_coordinates.parquet` | Gene genomic coordinates (multiome only) |
-| `linked_peaks.parquet` | Peak-gene linkages if pre-computed (multiome only) |
+| `gene_coordinates.parquet` | Gene span, strand, and merged exons per gene (multiome only) |
+| `linked_peaks.parquet` | Peak-gene links: pre-computed in the object, or computed with Signac `LinkPeaks` (multiome only) |
 | `manifest.json` | Dataset manifest describing all output files |
 | `viewer_config.yml` | Pennsieve platform viewer configuration |
 
@@ -35,6 +35,10 @@ Original single-file output: one `results.parquet` + `viewer_config.yml`.
 |-----------|---------|-------------|
 | `OUTPUT_MODE` | `expanded` | `expanded` (multi-file) or `consolidated` (legacy single file) |
 | `CHUNK_SIZE` | `500` | Number of genes per chunk file in expanded mode |
+| `LINK_PEAKS` | `true` | Compute peak-gene links with `LinkPeaks` when the object has none |
+| `LINK_MAX_GENES` | `5000` | Link the N most widely expressed genes (`0` = all) |
+| `LINK_BATCH_SIZE` | `1000` | Genes per `LinkPeaks` call (progress is logged per batch) |
+| `LINK_MAX_MINUTES` | `180` | Time budget for linking; links found so far are kept when it runs out |
 
 ## Memory Management
 
@@ -58,7 +62,7 @@ After loading the RDS file, the processor **drops unused assays from memory** to
 
 The processor also strips data between processing phases:
 - After Phase 1 (Embeddings): reductions are removed from memory
-- After Phase 3 (Gene expression): RNA assay is removed from memory
+- After Phase 3 (Gene expression) and Phase 3b (Peak-gene links): RNA assay is removed from memory. Linking runs before the drop because it correlates RNA expression with ATAC accessibility
 - `gc()` is called between every phase with memory usage logging
 
 ### Why This Is Necessary
@@ -70,7 +74,8 @@ R's `readRDS()` loads the entire object into memory at once — there is no way 
 Multiome objects (RNA + ATAC) are auto-detected by checking for `ChromatinAssay` class in the assay list. When detected:
 - Multiple embeddings are extracted (WNN, ATAC, RNA UMAP)
 - Chromatin tracks are generated from the peak matrix
-- Gene coordinates and peak-gene linkages are extracted if available
+- Gene coordinates are built from the ChromatinAssay annotation (or Ensembl v86 / hg38 if it has none)
+- Peak-gene links are exported if pre-computed, otherwise computed with `LinkPeaks` (needs `BSgenome.Hsapiens.UCSC.hg38` for peak GC content; skipped with a warning if unavailable)
 
 ## Requirements
 

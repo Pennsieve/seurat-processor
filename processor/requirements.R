@@ -15,12 +15,15 @@ install.packages("BiocManager", repos = ppm)
 BiocManager::install(c(
   'GenomicRanges', 'GenomeInfoDb', 'IRanges', 'Rsamtools',
   'Biostrings', 'BSgenome', 'EnsDb.Hsapiens.v86', 'biovizBase',
-  'Signac'
+  'Signac',
+  # hg38 sequence (~1 GB): peak GC content for LinkPeaks background matching
+  'BSgenome.Hsapiens.UCSC.hg38'
 ), ask = FALSE, update = FALSE)
 
 # --- Verify ---
 critical <- c('arrow', 'Seurat', 'SeuratObject', 'Signac',
-              'GenomicRanges', 'GenomeInfoDb', 'data.table', 'jsonlite')
+              'GenomicRanges', 'GenomeInfoDb', 'data.table', 'jsonlite',
+              'EnsDb.Hsapiens.v86', 'BSgenome.Hsapiens.UCSC.hg38')
 for (pkg in critical) {
   ok <- requireNamespace(pkg, quietly = TRUE)
   message(if (ok) "OK: " else "MISSING: ", pkg)

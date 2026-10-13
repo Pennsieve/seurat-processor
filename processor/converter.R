@@ -262,37 +262,25 @@ write_gene_expression <- function(seurat_obj, config) {
 
     chunk_filename <- sprintf("chunks/chunk_%05d.parquet", chunk_idx)
 
-    # Build chunk data using data.table for speed
-    chunk_rows <- vector("list", length(batch_indices))
-    ri <- 0L
-    for (gene_idx in batch_indices) {
-      expr_col <- expr_matrix[gene_idx, ]
-      expressing <- which(expr_col != 0)
+    # Slice the whole batch at once. The matrix is stored by column (cell), so
+    # pulling out one gene row scans the entire matrix; per-gene slicing made
+    # every chunk take ~4.5 min regardless of size.
+    batch <- expr_matrix[batch_indices, , drop = FALSE]
+    trip <- Matrix::summary(batch)  # i = row within batch, j = cell, x = value
+    rm(batch)
+    trip <- trip[trip$x != 0, , drop = FALSE]
+    trip <- trip[order(trip$i, trip$j), , drop = FALSE]  # gene-major, like before
 
-      if (length(expressing) > 0) {
-        ri <- ri + 1L
-        chunk_rows[[ri]] <- data.frame(
-          cell_id = cell_ids[expressing],
-          expression = as.numeric(expr_col[expressing]),
-          gene_id = rep(gene_idx - 1L, length(expressing)),
-          stringsAsFactors = FALSE
-        )
-      }
-    }
-
-    if (ri > 0) {
-      chunk_df <- do.call(rbind, chunk_rows[1:ri])
-    } else {
-      chunk_df <- data.frame(
-        cell_id = character(0),
-        expression = numeric(0),
-        gene_id = integer(0),
-        stringsAsFactors = FALSE
-      )
-    }
+    chunk_df <- data.frame(
+      cell_id = cell_ids[trip$j],
+      expression = as.numeric(trip$x),
+      gene_id = as.integer(batch_indices[trip$i] - 1L),
+      stringsAsFactors = FALSE
+    )
+    rm(trip)
 
     write_parquet_safe(chunk_df, file.path(config$output_dir, chunk_filename))
-    rm(chunk_df, chunk_rows)
+    rm(chunk_df)
 
     # Record gene locations (pre-allocated vectors, no rbind)
     gene_loc_names[batch_indices] <- gene_names[batch_indices]
