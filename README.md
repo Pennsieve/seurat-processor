@@ -21,7 +21,7 @@ Produces multiple Parquet files optimized for lazy-loading in the browser:
 | `chunks/chunk_NNNNN.parquet` | Gene expression data grouped by chunk |
 | `chromatin_tracks.parquet` | Pseudobulk chromatin signal per cell type (multiome only) |
 | `gene_coordinates.parquet` | Gene span, strand, and merged exons per gene (multiome only) |
-| `linked_peaks.parquet` | Peak-gene links: pre-computed in the object, or computed with Signac `LinkPeaks` (multiome only) |
+| `linked_peaks.parquet` | Peak-gene links: pre-computed in the object, or computed with Signac `LinkPeaks` (multiome only). Columns: gene, peak location, correlation, z-score, p-value, `link_type` (`promoter` within 2 kb of the TSS, `intronic` inside the gene, else `distal`), `distance_to_tss` (negative = upstream), `top_cell_type` and its mean signal |
 | `manifest.json` | Dataset manifest describing all output files |
 | `viewer_config.yml` | Pennsieve platform viewer configuration |
 

@@ -187,16 +187,20 @@ get_gene_annotations <- function(seurat_obj, chromatin_assay) {
 # GENE COORDINATES
 # =============================================================================
 
+#' Gene spans + exons built from the annotations, cached for reuse.
+get_gene_coordinates <- function(seurat_obj, chromatin_assay) {
+  if (is.null(.annotation_cache$coords)) {
+    annotations <- get_gene_annotations(seurat_obj, chromatin_assay)
+    if (is.null(annotations) || length(annotations) == 0) return(NULL)
+    .annotation_cache$coords <- build_gene_coordinates(annotations)
+  }
+  .annotation_cache$coords
+}
+
 write_gene_coordinates <- function(seurat_obj, config, chromatin_assay) {
   log_info("Extracting gene coordinates...")
 
-  annotations <- get_gene_annotations(seurat_obj, chromatin_assay)
-  if (is.null(annotations) || length(annotations) == 0) {
-    log_warn("No gene annotations available — skipping gene_coordinates.parquet")
-    return(FALSE)
-  }
-
-  coords_df <- build_gene_coordinates(annotations)
+  coords_df <- get_gene_coordinates(seurat_obj, chromatin_assay)
   if (is.null(coords_df) || nrow(coords_df) == 0) {
     log_warn("No gene coordinates could be built from annotations")
     return(FALSE)
@@ -285,7 +289,10 @@ write_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
       return(FALSE)
     }
 
-    write_parquet_safe(links_to_df(links),
+    links_df <- links_to_df(links)
+    links_df <- classify_links(links_df, get_gene_coordinates(seurat_obj, chromatin_assay))
+    links_df <- add_top_cell_type(links_df, seurat_obj, chromatin_assay)
+    write_parquet_safe(links_df,
                        file.path(config$output_dir, "linked_peaks.parquet"))
     TRUE
   }, error = function(e) {
@@ -460,7 +467,70 @@ links_to_df <- function(links) {
     zscore = if ("zscore" %in% names(mc)) as.numeric(mc$zscore) else NA_real_,
     p_value = if ("pvalue" %in% names(mc)) as.numeric(mc$pvalue) else NA_real_,
     link_type = "peak_gene",
+    tss = as.integer(tss),
     distance_to_tss = as.integer(round(peak_mid - tss)),
     stringsAsFactors = FALSE
   )
+}
+
+PROMOTER_WINDOW <- 2000
+
+#' Label each link promoter (peak within 2 kb of the TSS), intronic (inside the
+#' gene body) or distal, and make distance_to_tss strand-aware: negative is
+#' upstream of the gene, positive is downstream (into the gene).
+classify_links <- function(links_df, gene_coords) {
+  genes <- if (is.null(gene_coords)) NULL else
+    gene_coords[match(links_df$gene_name, gene_coords$gene_name), ]
+  strand <- if (is.null(genes)) rep("+", nrow(links_df)) else genes$strand
+  strand[is.na(strand)] <- "+"
+
+  near_tss <- links_df$peak_end >= links_df$tss - PROMOTER_WINDOW &
+    links_df$peak_start <= links_df$tss + PROMOTER_WINDOW
+  peak_mid <- (links_df$peak_start + links_df$peak_end) / 2
+  in_body <- if (is.null(genes)) rep(FALSE, nrow(links_df)) else
+    !is.na(genes$start) & peak_mid >= genes$start & peak_mid <= genes$end
+
+  links_df$link_type <- ifelse(near_tss, "promoter", ifelse(in_body, "intronic", "distal"))
+  links_df$distance_to_tss <- ifelse(strand == "-", -1L, 1L) * links_df$distance_to_tss
+  links_df$tss <- NULL
+  counts <- table(links_df$link_type)
+  log_info("Link types: ", paste(names(counts), counts, sep = " ", collapse = ", "))
+  links_df
+}
+
+#' Cell type with the highest mean accessibility at each linked peak (same
+#' measure as chromatin_tracks.parquet).
+add_top_cell_type <- function(links_df, seurat_obj, chromatin_assay) {
+  links_df$top_cell_type <- NA_character_
+  links_df$top_cell_type_signal <- NA_real_
+  cell_type_col <- get_cell_type_column(seurat_obj@meta.data)
+  if (is.null(cell_type_col)) {
+    log_warn("No cell type column — linked peaks written without top cell type")
+    return(links_df)
+  }
+
+  peak_names <- paste(links_df$peak_chrom, links_df$peak_start, links_df$peak_end, sep = "-")
+  counts <- GetAssayData(seurat_obj, assay = chromatin_assay, layer = "counts")
+  unique_peaks <- intersect(unique(peak_names), rownames(counts))
+  if (length(unique_peaks) == 0) {
+    log_warn("Linked peaks not found in the peak matrix — skipping top cell type")
+    return(links_df)
+  }
+
+  cell_types <- as.character(seurat_obj@meta.data[[cell_type_col]])
+  sub <- counts[unique_peaks, , drop = FALSE]
+  rm(counts)
+  types <- sort(unique(cell_types[!is.na(cell_types)]))
+  # peaks x cell types matrix of mean counts per cell
+  means <- vapply(types, function(ct) {
+    cells <- which(cell_types == ct)
+    Matrix::rowSums(sub[, cells, drop = FALSE]) / length(cells)
+  }, numeric(length(unique_peaks)))
+  means <- matrix(means, nrow = length(unique_peaks), dimnames = list(unique_peaks, types))
+
+  best <- max.col(means, ties.method = "first")
+  idx <- match(peak_names, unique_peaks)
+  links_df$top_cell_type <- types[best][idx]
+  links_df$top_cell_type_signal <- means[cbind(seq_along(best), best)][idx]
+  links_df
 }
