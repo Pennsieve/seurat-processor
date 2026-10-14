@@ -294,6 +294,60 @@ write_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
   })
 }
 
+#' Order the genes to link: LINK_GENES first, then the most variable genes
+#' (they differ between cell types, so marker genes rank high), capped at
+#' LINK_MAX_GENES. Only annotated genes expressed in >10 cells qualify.
+rank_link_genes <- function(seurat_obj, annotated_genes, config) {
+  expr <- GetAssayData(seurat_obj, assay = "RNA", layer = "data")
+  n_expressing <- tabulate(expr@i + 1L, nbins = nrow(expr))
+  names(n_expressing) <- rownames(expr)
+  rm(expr)
+  candidates <- names(n_expressing)[names(n_expressing) %in% annotated_genes &
+                                      n_expressing > 10]
+
+  variability <- gene_variability(seurat_obj)
+  if (is.null(variability)) {
+    log_warn("Could not rank genes by variability — using most widely expressed")
+    variability <- n_expressing
+  }
+  ranked <- candidates[order(variability[candidates], decreasing = TRUE, na.last = TRUE)]
+
+  requested <- toupper(config$link_genes)
+  if (length(requested) > 0) {
+    forced <- candidates[toupper(candidates) %in% requested]
+    missing <- setdiff(requested, toupper(candidates))
+    if (length(missing) > 0) {
+      log_warn("LINK_GENES not annotated or expressed in >10 cells: ",
+               paste(missing, collapse = ", "))
+    }
+    ranked <- c(forced, setdiff(ranked, forced))
+  }
+
+  if (config$link_max_genes > 0) {
+    ranked <- head(ranked, max(config$link_max_genes, length(requested)))
+  }
+  log_info("Genes to link: ", length(ranked), " of ", length(candidates),
+           " candidates; first: ", paste(head(ranked, 10), collapse = ", "))
+  ranked
+}
+
+#' Seurat "vst" standardized variance per gene, from RNA counts.
+gene_variability <- function(seurat_obj) {
+  tryCatch({
+    counts <- GetAssayData(seurat_obj, assay = "RNA", layer = "counts")
+    if (length(counts) == 0 || nrow(counts) == 0) return(NULL)
+    hvf <- suppressWarnings(Seurat::FindVariableFeatures(
+      counts, selection.method = "vst", verbose = FALSE))
+    # Column is "vst.variance.standardized" in Seurat 5, "variance.standardized" before
+    col <- grep("variance\\.standardized$", colnames(hvf), value = TRUE)[1]
+    if (is.na(col)) stop("no standardized variance column in: ", paste(colnames(hvf), collapse = ", "))
+    setNames(hvf[[col]], rownames(hvf))
+  }, error = function(e) {
+    log_warn("Variable gene ranking failed: ", e$message)
+    NULL
+  })
+}
+
 #' Run LinkPeaks in batches of genes, logging progress and stopping when the
 #' time budget runs out (links found so far are kept).
 compute_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
@@ -314,15 +368,7 @@ compute_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
   # LinkPeaks checks the expression layer against the default assay
   DefaultAssay(seurat_obj) <- "RNA"
 
-  # Annotated genes, most widely expressed first, capped at LINK_MAX_GENES
-  expr <- GetAssayData(seurat_obj, assay = "RNA", layer = "data")
-  n_expressing <- tabulate(expr@i + 1L, nbins = nrow(expr))
-  names(n_expressing) <- rownames(expr)
-  rm(expr)
-  candidates <- n_expressing[names(n_expressing) %in% annotated_genes &
-                               n_expressing > 10]
-  genes <- names(sort(candidates, decreasing = TRUE))
-  if (config$link_max_genes > 0) genes <- head(genes, config$link_max_genes)
+  genes <- rank_link_genes(seurat_obj, annotated_genes, config)
   if (length(genes) == 0) {
     log_warn("No expressed, annotated genes to link")
     return(NULL)

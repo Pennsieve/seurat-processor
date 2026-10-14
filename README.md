@@ -36,7 +36,8 @@ Original single-file output: one `results.parquet` + `viewer_config.yml`.
 | `OUTPUT_MODE` | `expanded` | `expanded` (multi-file) or `consolidated` (legacy single file) |
 | `CHUNK_SIZE` | `500` | Number of genes per chunk file in expanded mode |
 | `LINK_PEAKS` | `true` | Compute peak-gene links with `LinkPeaks` when the object has none |
-| `LINK_MAX_GENES` | `5000` | Link the N most widely expressed genes (`0` = all) |
+| `LINK_GENES` | _(empty)_ | Genes to always link, comma-separated (e.g. `SCN10A,TAC1`); linked first |
+| `LINK_MAX_GENES` | `5000` | Link the N most variable genes (`0` = all, about 50 min per 1000 genes on a 66k-cell dataset) |
 | `LINK_BATCH_SIZE` | `1000` | Genes per `LinkPeaks` call (progress is logged per batch) |
 | `LINK_MAX_MINUTES` | `0` | Time budget for linking (`0` = no limit); links found so far are kept when it runs out |
 
