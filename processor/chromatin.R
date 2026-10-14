@@ -330,13 +330,14 @@ compute_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
 
   batches <- split(genes, ceiling(seq_along(genes) / config$link_batch_size))
   log_info("Linking peaks for ", length(genes), " genes in ", length(batches),
-           " batches (time budget ", config$link_max_minutes, " min)")
+           " batches (time budget: ",
+           if (config$link_max_minutes > 0) paste(config$link_max_minutes, "min") else "none", ")")
 
   started <- proc.time()[["elapsed"]]
   results <- list()
   for (b in seq_along(batches)) {
     elapsed_min <- (proc.time()[["elapsed"]] - started) / 60
-    if (elapsed_min > config$link_max_minutes) {
+    if (config$link_max_minutes > 0 && elapsed_min > config$link_max_minutes) {
       log_warn("Time budget reached after ", b - 1, " / ", length(batches),
                " batches — keeping links found so far")
       break

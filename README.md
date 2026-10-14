@@ -38,7 +38,7 @@ Original single-file output: one `results.parquet` + `viewer_config.yml`.
 | `LINK_PEAKS` | `true` | Compute peak-gene links with `LinkPeaks` when the object has none |
 | `LINK_MAX_GENES` | `5000` | Link the N most widely expressed genes (`0` = all) |
 | `LINK_BATCH_SIZE` | `1000` | Genes per `LinkPeaks` call (progress is logged per batch) |
-| `LINK_MAX_MINUTES` | `180` | Time budget for linking; links found so far are kept when it runs out |
+| `LINK_MAX_MINUTES` | `0` | Time budget for linking (`0` = no limit); links found so far are kept when it runs out |
 
 ## Memory Management
 
