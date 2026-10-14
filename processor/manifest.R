@@ -18,11 +18,15 @@ write_manifest <- function(config, embedding_info, gene_info, chromatin_info,
   embeddings <- list()
   for (filename in names(embedding_info$files)) {
     reduction_key <- embedding_info$files[[filename]]
-    embeddings[[length(embeddings) + 1]] <- list(
+    computed <- reduction_key %in% embedding_info$computed
+    embeddings[[length(embeddings) + 1]] <- Filter(Negate(is.null), list(
       key = reduction_key,
       file = filename,
-      columns = list("cell_id", "umap_1", "umap_2")
-    )
+      columns = list("cell_id", "umap_1", "umap_2"),
+      # "computed" = made by this processor, not in the submitted object
+      source = if (computed) "computed" else "object",
+      method = if (computed) "Seurat::RunUMAP on the object's PCA (first 30 dims, default settings)" else NULL
+    ))
   }
 
   # Build files section
@@ -73,6 +77,15 @@ write_manifest <- function(config, embedding_info, gene_info, chromatin_info,
       n_genes = gene_info$n_genes,
       n_chunks = gene_info$n_chunks,
       chunks_dir = "chunks"
+    ),
+    provenance = c(
+      list(
+        cell_type_column = list(source = "selected", value = cell_type_col,
+                                rule = "First match of final_cluster_ids, cell_type, celltype, CellType, cell_type_annotation, seurat_clusters"),
+        gene_stats = list(source = "computed",
+                          method = "Mean, total and % of cells expressing, from the RNA data layer (log-normalized)")
+      ),
+      get_provenance()
     ),
     chromatin = list(
       has_tracks = isTRUE(chromatin_info$has_tracks),

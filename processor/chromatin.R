@@ -116,6 +116,11 @@ write_chromatin_tracks <- function(seurat_obj, config, chromatin_assay) {
 
   tracks_df <- do.call(rbind, track_rows)
   write_parquet_safe(tracks_df, file.path(config$output_dir, "chromatin_tracks.parquet"))
+  record_provenance("chromatin_tracks", list(
+    source = "computed",
+    method = paste0("Mean peak counts per cell in each '", cell_type_col, "' group (pseudobulk) from the ",
+                    chromatin_assay, " assay; peaks with zero signal omitted; no depth normalization")
+  ))
 
   # Free peak matrix
   rm(peak_matrix, track_rows, tracks_df)
@@ -160,7 +165,9 @@ get_gene_annotations <- function(seurat_obj, chromatin_assay) {
     error = function(e) NULL
   )
 
+  source <- "object"
   if (is.null(annotations) || length(annotations) == 0) {
+    source <- "computed"
     log_info("No annotations in ChromatinAssay — using EnsDb.Hsapiens.v86 (hg38)")
     annotations <- tryCatch({
       suppressMessages(library(EnsDb.Hsapiens.v86))
@@ -177,6 +184,14 @@ get_gene_annotations <- function(seurat_obj, chromatin_assay) {
   if (!is.null(annotations) && length(annotations) > 0) {
     log_info("Gene annotations: ", length(annotations), " ranges, types: ",
              paste(unique(as.character(annotations$type)), collapse = ", "))
+  }
+  if (!is.null(annotations) && length(annotations) > 0) {
+    record_provenance("gene_coordinates", list(
+      source = source,
+      annotation = if (source == "object") paste0("Annotation() of the ", chromatin_assay, " assay")
+                   else "EnsDb.Hsapiens.v86 (Ensembl 86, hg38)",
+      method = "Gene span = outermost transcript ends; exons merged across all transcripts"
+    ))
   }
   .annotation_cache$annotations <- annotations
   annotations
@@ -277,6 +292,7 @@ write_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
     links <- Signac::Links(seurat_obj[[chromatin_assay]])
     if (length(links) > 0) {
       log_info("Found ", length(links), " pre-computed peak-gene links")
+      .link_run$info <- list(source = "object", method = paste0("Links() of the ", chromatin_assay, " assay"))
     } else if (!config$link_peaks) {
       log_info("No pre-computed peak-gene links and LINK_PEAKS=false — skipping")
       return(FALSE)
@@ -294,6 +310,7 @@ write_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
     links_df <- add_top_cell_type(links_df, seurat_obj, chromatin_assay)
     write_parquet_safe(links_df,
                        file.path(config$output_dir, "linked_peaks.parquet"))
+    record_provenance("linked_peaks", link_provenance(.link_run$info, links_df))
     TRUE
   }, error = function(e) {
     log_warn("Failed to write peak-gene links: ", e$message)
@@ -355,6 +372,32 @@ gene_variability <- function(seurat_obj) {
   })
 }
 
+# Details of the current link computation, for the manifest
+.link_run <- new.env()
+
+link_provenance <- function(info, links_df) {
+  derived <- list(source = "computed")
+  from_links <- list(source = info$source)
+  c(info, list(
+    n_links = nrow(links_df),
+    n_genes_with_links = length(unique(links_df$gene_name)),
+    columns = list(
+      correlation = from_links,
+      zscore = from_links,
+      p_value = from_links,
+      link_type = c(derived, list(
+        rule = paste0("promoter: peak within ", PROMOTER_WINDOW, " bp of the TSS; ",
+                      "intronic: peak midpoint inside the gene span; distal: otherwise"))),
+      distance_to_tss = c(derived, list(
+        rule = "Peak midpoint minus TSS in bp, in the gene's direction: negative = upstream, positive = downstream (into or past the gene)")),
+      top_cell_type = c(derived, list(
+        rule = "Cell type with the highest mean peak count per cell")),
+      top_cell_type_signal = c(derived, list(
+        rule = "Mean peak count per cell in the top cell type"))
+    )
+  ))
+}
+
 #' Run LinkPeaks in batches of genes, logging progress and stopping when the
 #' time budget runs out (links found so far are kept).
 compute_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
@@ -388,6 +431,7 @@ compute_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
 
   started <- proc.time()[["elapsed"]]
   results <- list()
+  batches_done <- 0
   for (b in seq_along(batches)) {
     elapsed_min <- (proc.time()[["elapsed"]] - started) / 60
     if (config$link_max_minutes > 0 && elapsed_min > config$link_max_minutes) {
@@ -413,11 +457,26 @@ compute_linked_peaks <- function(seurat_obj, config, chromatin_assay) {
     rm(linked)
 
     if (length(batch_result) > 0) results[[length(results) + 1]] <- batch_result
+    batches_done <- b
     log_info("  Linked batch ", b, " / ", length(batches), " — ",
              length(batch_result), " links, ",
              round((proc.time()[["elapsed"]] - started) / 60, 1), " min elapsed")
     clean_memory(paste0("link batch ", b))
   }
+
+  .link_run$info <- list(
+    source = "computed",
+    method = "Signac::LinkPeaks",
+    parameters = list(distance_bp = 500000, method = "pearson", min_cells = 10,
+                      pvalue_cutoff = 0.05, score_cutoff = 0.05, n_sample = 200,
+                      expression_layer = "data", genome = "hg38 (BSgenome.Hsapiens.UCSC.hg38)"),
+    gene_selection = paste0(
+      if (length(config$link_genes)) "LINK_GENES first, then " else "",
+      "most variable genes (Seurat vst)",
+      if (config$link_max_genes > 0) paste0(", up to ", config$link_max_genes, " genes") else ", all genes"),
+    genes_tested = length(unlist(batches[seq_len(batches_done)])),
+    complete = batches_done == length(batches)
+  )
 
   if (length(results) == 0) return(NULL)
   do.call(c, unname(results))

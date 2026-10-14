@@ -65,6 +65,20 @@ If the object already contains links (`Links()` on the chromatin assay), those
 are used as-is and only `link_type`, `distance_to_tss` and `top_cell_type` are
 calculated.
 
+### Provenance in `manifest.json`
+
+Because this depends on the input, each run records it in the manifest:
+
+- Each entry in `embeddings` has `source`: `"object"` (copied) or `"computed"` (with `method`).
+- `provenance` has one entry per output (`gene_coordinates`, `chromatin_tracks`,
+  `linked_peaks`, `gene_stats`, `cell_type_column`, `chromatin_assay`) with
+  `source` (`object`, `computed` or `selected`) and how it was made.
+  `linked_peaks` also lists the `LinkPeaks` parameters, how genes were chosen,
+  whether the run finished (`complete`), and `columns` with the source and rule
+  for each column.
+
+Dashboards should read these fields to mark calculated values, not assume them.
+
 ## Parameters
 
 | Parameter | Default | Description |
