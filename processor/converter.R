@@ -62,6 +62,7 @@ write_embeddings <- function(seurat_obj, config, is_multiome) {
       if (!is.null(compute_result)) {
         seurat_obj <- compute_result$seurat_obj
         rna_key <- compute_result$key
+        embedding_info$computed <- rna_key
       }
     }
 

@@ -25,9 +25,13 @@ parameters:
     type: string
     description: Compute peak-gene links for multiome datasets ("true" or "false")
     default: "true"
+  - name: LINK_GENES
+    type: string
+    description: Genes to always link, comma-separated (e.g. SCN10A,TAC1). These are linked first
+    default: ""
   - name: LINK_MAX_GENES
     type: number
-    description: Link the N most widely expressed genes (0 = all). About 50 minutes per 1000 genes on a large dataset
+    description: Link the N most variable genes (0 = all). About 50 minutes per 1000 genes on a large dataset
     default: 5000
   - name: LINK_BATCH_SIZE
     type: number

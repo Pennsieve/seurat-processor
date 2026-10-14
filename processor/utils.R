@@ -209,3 +209,17 @@ clean_memory <- function(label = "") {
   used_mb <- sum(gc_result[, 2])
   log_info("GC after ", label, " — ", round(used_mb, 1), " MB in use")
 }
+
+# ---- Provenance ----
+# Records which outputs were copied from the object and which the processor
+# calculated (and how). Written to manifest.json so dashboards can label
+# derived values per dataset.
+.provenance <- new.env()
+
+record_provenance <- function(key, value) {
+  assign(key, value, envir = .provenance)
+}
+
+get_provenance <- function() {
+  as.list(.provenance)[sort(ls(.provenance))]
+}

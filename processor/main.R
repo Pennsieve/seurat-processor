@@ -121,6 +121,9 @@ run_expanded <- function(seurat_obj, config) {
   chromatin_assay <- NULL
   if (is_multiome) {
     chromatin_assay <- get_chromatin_assay_name(seurat_obj)
+    record_provenance("chromatin_assay", list(
+      source = "selected", value = chromatin_assay,
+      rule = "ATAC_macs2 if present, else ATAC, else the first chromatin assay"))
     log_info("Chromatin assay: ", chromatin_assay)
   }
 
