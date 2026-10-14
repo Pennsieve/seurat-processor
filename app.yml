@@ -21,3 +21,19 @@ parameters:
     type: number
     description: Number of genes per chunk file
     default: 500
+  - name: LINK_PEAKS
+    type: string
+    description: Compute peak-gene links for multiome datasets ("true" or "false")
+    default: "true"
+  - name: LINK_MAX_GENES
+    type: number
+    description: Link the N most widely expressed genes (0 = all). About 50 minutes per 1000 genes on a large dataset
+    default: 5000
+  - name: LINK_BATCH_SIZE
+    type: number
+    description: Genes per linking batch (progress is logged after each batch)
+    default: 1000
+  - name: LINK_MAX_MINUTES
+    type: number
+    description: Stop linking after this many minutes and keep the links found so far (0 = no limit)
+    default: 0

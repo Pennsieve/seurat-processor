@@ -11,11 +11,11 @@ load_config <- function() {
     environment    = Sys.getenv("ENVIRONMENT", "local"),
     # Peak-gene links (multiome only): compute with Signac::LinkPeaks when the
     # object has none. Genes are linked most-expressed first, in batches, until
-    # LINK_MAX_GENES (0 = all) or the LINK_MAX_MINUTES time budget is reached.
+    # LINK_MAX_GENES (0 = all) or the LINK_MAX_MINUTES budget (0 = no limit) is reached.
     link_peaks       = tolower(Sys.getenv("LINK_PEAKS", "true")) %in% c("true", "1", "yes"),
     link_max_genes   = as.integer(Sys.getenv("LINK_MAX_GENES", "5000")),
     link_batch_size  = as.integer(Sys.getenv("LINK_BATCH_SIZE", "1000")),
-    link_max_minutes = as.numeric(Sys.getenv("LINK_MAX_MINUTES", "180"))
+    link_max_minutes = as.numeric(Sys.getenv("LINK_MAX_MINUTES", "0"))
   )
 
   # Validate output_mode
