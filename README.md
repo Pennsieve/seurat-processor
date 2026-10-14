@@ -29,6 +29,42 @@ Produces multiple Parquet files optimized for lazy-loading in the browser:
 
 Original single-file output: one `results.parquet` + `viewer_config.yml`.
 
+## Data Provenance: What Is Copied vs. Calculated
+
+Most outputs are copied straight from the Seurat object. The values below are
+**calculated by this processor** (or chosen by its rules) and are not part of
+the submitted data. They depend on our choices and can differ from what the
+researchers would get with their own analysis. Dashboards should label them.
+
+### Copied from the object (no calculation)
+
+- WNN and ATAC UMAP coordinates (`wnn.umap`, `atac.umap`)
+- Cell metadata (`cells.parquet`), including cell type labels
+- Gene expression values: the RNA `data` layer (log-normalized), unchanged
+- Gene locations, strands and exons: from the gene annotation stored in the chromatin assay.
+  The processor falls back to Ensembl v86 (hg38) **only** if the object has none, and logs it
+- Peak locations (the chromatin assay's peak set)
+
+### Calculated by the processor
+
+| Output | What it is | How it is made | Room for error |
+|--------|-----------|----------------|----------------|
+| RNA UMAP (`rna_umap_complete.parquet`) | Cell map from RNA only | `RunUMAP` on the object's PCA (first 30 dims, Seurat defaults), **only when the object has no RNA UMAP** | Not the researchers' own RNA UMAP; layout differs between runs and from theirs |
+| Which cell type column is used | Groups for tracks and top cell type | First of `final_cluster_ids`, `cell_type`, `celltype`, ... found in the metadata | Wrong column if the object names its labels differently |
+| Which chromatin assay is used | Peak set for tracks and links | `ATAC_macs2` if present, else `ATAC` | Results reflect that peak set only |
+| `gene_stats.parquet` | Mean, total, % of cells expressing | Summed from the log-normalized `data` layer | Simple sums; means are of log values |
+| Gene span and exons (`gene_coordinates.parquet`) | One row per gene | Span = outermost transcript ends; exons merged across all transcripts | Shows a union of transcripts, not one isoform; genes on several chromosomes keep the first |
+| Chromatin tracks (`chromatin_tracks.parquet`) | Accessibility per cell type | Mean peak counts per cell in each cell type (pseudobulk); zero-signal peaks omitted | Not normalized for sequencing depth (no TF-IDF / CPM); per peak, not base-pair coverage |
+| **Peak-gene links (`linked_peaks.parquet`)** | Regions linked to a gene | **Computed with Signac `LinkPeaks` when the object has no links.** Defaults: peaks within 500 kb of the TSS, Pearson correlation of peak counts vs. RNA `data`, GC-matched background (hg38 genome assumed), kept if p < 0.05 and \|r\| > 0.05 | Statistical association, not proof of regulation. Only the genes chosen by `LINK_GENES` / most variable (`LINK_MAX_GENES`) are linked; other genes show no links even if links exist. Correlations in single-cell data are low (typically 0.05–0.4) |
+| `correlation`, `zscore`, `p_value` | Link strength | From `LinkPeaks` (above) | p-values are per link, not corrected across all links |
+| `link_type` | promoter / intronic / distal | **Our rule:** `promoter` if the peak is within 2 kb of the TSS; `intronic` if its midpoint is inside the gene span; else `distal`. Peaks overlapping exons count as intronic | Cut-offs are a convention, not from the data. Uses the gene span (all transcripts), so a peak in one isoform's intron may be another's exon |
+| `distance_to_tss` | Distance from gene start to peak | Peak midpoint minus the TSS used by `LinkPeaks`, in bp, **in the gene's direction**: negative = upstream (before the gene starts), positive = downstream (into or past the gene) | TSS is the start of the longest transcript; other isoforms may start elsewhere |
+| `top_cell_type`, `top_cell_type_signal` | Cell type where the peak is most open | Highest mean peak count per cell among cell types | Ties go to the first type alphabetically; small cell types can be noisy |
+
+If the object already contains links (`Links()` on the chromatin assay), those
+are used as-is and only `link_type`, `distance_to_tss` and `top_cell_type` are
+calculated.
+
 ## Parameters
 
 | Parameter | Default | Description |
