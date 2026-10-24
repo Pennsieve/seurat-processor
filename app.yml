@@ -3,13 +3,11 @@ application:
   name: Seurat Processor
   description: Processes Seurat Objects (.rds) and exports UMAP embeddings, metadata, and gene expression data to Parquet files for web visualization.
   type: processor
-  categories:
-    - Visualization
-    - Single Cell
   tags:
-    - seurat
     - single-cell
     - scrna-seq
+    - visualization
+    - seurat
 runtime:
   cpu: 4096
   memory: 65536
