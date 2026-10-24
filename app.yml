@@ -1,17 +1,20 @@
-# yaml-language-server: $schema=https://app.pennsieve.io/static/schemas/app-manifest.v1.json
-schemaVersion: '1.0'
-name: Seurat Processor
-description: Processes Seurat Objects (.rds) and exports UMAP embeddings, metadata, and gene expression data to Parquet files for web visualization.
-applicationType: processor
-categories:
-  - Visualization
-  - Single Cell
+schemaVersion: 1.0.0
+application:
+  name: Seurat Processor
+  description: Processes Seurat Objects (.rds) and exports UMAP embeddings, metadata, and gene expression data to Parquet files for web visualization.
+  type: processor
+  categories:
+    - Visualization
+    - Single Cell
+  tags:
+    - seurat
+    - single-cell
+    - scrna-seq
 runtime:
-  computeTypes:
-    - standard
-resources:
   cpu: 4096
   memory: 65536
+  computeTypes:
+    - standard
 parameters:
   - name: OUTPUT_MODE
     type: string
@@ -42,3 +45,13 @@ parameters:
     type: number
     description: Stop linking after this many minutes and keep the links found so far (0 = no limit)
     defaultValue: 0
+inputs:
+  - name: seurat-object
+    description: A Seurat object saved with saveRDS (.rds).
+    mediaTypes:
+      - application/x-rds
+outputs:
+  - name: parquet
+    description: UMAP embeddings, cell metadata and gene expression as Parquet files, for the UMAP viewer.
+    mediaTypes:
+      - application/vnd.apache.parquet
