@@ -137,6 +137,6 @@ Multiome objects (RNA + ATAC) are auto-detected by checking for `ChromatinAssay`
 Depends on `OUTPUT_MODE` — see Output Modes above.
 
 ## Notes
-- The container requires 64 GB memory for large multiome objects
+- The container requires at least 64 GB memory for large multiome objects; app.yml asks for Fargate's maximum, 120 GB with 16 vCPU (4 vCPU allows at most 30 GB). Linking is single-threaded, so the extra vCPUs don't make it faster
 - Processing a 31 GB RDS file takes approximately 20-30 minutes
 - The processor runs on the Pennsieve workflow platform as a Docker container
