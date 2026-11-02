@@ -9,9 +9,10 @@ application:
     - visualization
     - seurat
 runtime:
-  # Fargate sizes: 64 GB of memory needs 16 vCPU (4 vCPU allows at most 30 GB)
+  # Fargate sizes: 16 vCPU allows 32–120 GB in 8 GB steps (4 vCPU allows at most 30 GB).
+  # The maximum, so large multiome objects and linking all genes have headroom.
   cpu: 16384
-  memory: 65536
+  memory: 122880
   computeTypes:
     - standard
 parameters:
