@@ -9,7 +9,8 @@ application:
     - visualization
     - seurat
 runtime:
-  cpu: 4096
+  # Fargate sizes: 64 GB of memory needs 16 vCPU (4 vCPU allows at most 30 GB)
+  cpu: 16384
   memory: 65536
   computeTypes:
     - standard
